@@ -13,9 +13,7 @@ import aiss.dailymotionminer.etl.Transformer;
 import aiss.dailymotionminer.model.dailymotion.Owner;
 import aiss.dailymotionminer.model.dailymotion.Video;
 import aiss.dailymotionminer.model.dailymotion.VideoResponse;
-import aiss.dailymotionminer.model.videominer.VMCaption;
 import aiss.dailymotionminer.model.videominer.VMChannel;
-import aiss.dailymotionminer.model.videominer.VMComment;
 import aiss.dailymotionminer.model.videominer.VMVideo;
 
 @Service
@@ -47,11 +45,8 @@ public class DailymotionService {
         }
 
         List<VMVideo> videos = getVideos(channelId, maxVideos, maxPages);
-
         vmChannel.setVideos(videos);
-
         sendToVideoMiner(vmChannel);
-
         return vmChannel;
     }
 
@@ -67,7 +62,6 @@ public class DailymotionService {
         }
 
         List<VMVideo> videos = getVideos(channelId, maxVideos, maxPages);
-
         vmChannel.setVideos(videos);
 
         return vmChannel;
@@ -83,9 +77,7 @@ public class DailymotionService {
                 "?fields=id,screenname,description,created_time";
 
         try {
-
             Owner owner = restTemplate.getForObject(url, Owner.class);
-
             if (owner != null) {
                 return transformer.transformChannel(owner);
             }
@@ -102,60 +94,39 @@ public class DailymotionService {
     // 2. OBTENER VIDEOS
     // ============================================
     private List<VMVideo> getVideos(String channelId, int maxVideos, int maxPages) {
-
-        // ==========================================================
-        // AQUI ESTA EL CAMBIO IMPORTANTE
-        // ==========================================================
-        // ANTES:
-        // fields=id,title,description,created_time,tags
-        //
-        // AHORA:
-        // añadimos owner y ai_subtitle_languages
-        // ==========================================================
-
-        String url = dailymotionBaseUrl + "/user/" + channelId + "/videos?fields=id,title,description,created_time," + "owner.screenname,owner.url,owner.avatar_240_url," + "tags,ai_subtitle_languages&limit=" + maxVideos;
-
         List<VMVideo> result = new ArrayList<>();
-
         try {
+            for (int currentPage = 1; currentPage <= maxPages; currentPage++) {
+                // Ajustamos el límite de la petición para no pedir más de lo que falta para llegar a maxVideos
+                int remainingVideos = maxVideos - result.size();
+                if (remainingVideos <= 0) break; // Ya hemos alcanzado el máximo total
 
-            VideoResponse response =
-                    restTemplate.getForObject(url, VideoResponse.class);
+                String url = dailymotionBaseUrl + "/user/" + channelId 
+                    + "/videos?fields=id,title,description,created_time,"
+                    + "owner.screenname,owner.url,owner.avatar_240_url,"
+                    + "tags,ai_subtitle_languages"
+                    + "&limit=" + Math.min(remainingVideos, 10) // Usamos un límite razonable o el restante
+                    + "&page=" + currentPage;
 
-            if (response != null && response.getList() != null) {
+                VideoResponse response = restTemplate.getForObject(url, VideoResponse.class);
+
+                if (response == null || response.getList() == null || response.getList().isEmpty()) {
+                    break; 
+                }
 
                 for (Video dVideo : response.getList()) {
+                    if (result.size() >= maxVideos) break; // Doble seguridad para no exceder el total
 
-                    // Transformar video
-                    VMVideo vmVideo =
-                            transformer.transformVideo(dVideo);
-
-                    // Tags -> Comments
-                    List<VMComment> comments =
-                            transformer.transformTagsToComments(
-                                    dVideo.getTags(),
-                                    dVideo.getId()
-                            );
-
-                    vmVideo.setComments(comments);
-
-                    // Subtitles -> Captions
-                    List<VMCaption> captions =
-                            transformer.transformCaptions(
-                                    dVideo.getAiSubtitleLanguages()
-                            );
-
-                    vmVideo.setCaptions(captions);
+                    VMVideo vmVideo = transformer.transformVideo(dVideo);
+                    vmVideo.setComments(transformer.transformTagsToComments(dVideo.getTags(), dVideo.getId()));
+                    vmVideo.setCaptions(transformer.transformCaptions(dVideo.getAiSubtitleLanguages()));
 
                     result.add(vmVideo);
                 }
             }
-
         } catch (Exception e) {
-
             System.err.println("Error obteniendo vídeos: " + e.getMessage());
         }
-
         return result;
     }
 
@@ -163,21 +134,17 @@ public class DailymotionService {
     // 3. ENVIAR A VIDEOMINER
     // ============================================
     private void sendToVideoMiner(VMChannel vmChannel) {
-
         String url = videoMinerBaseUrl + "/channels";
 
         try {
-
             restTemplate.postForObject(
                     url,
                     vmChannel,
                     VMChannel.class
             );
-
             System.out.println("Canal enviado con éxito a VideoMiner");
 
         } catch (Exception e) {
-
             System.err.println(
                     "Error al conectar con VideoMiner: "
                             + e.getMessage()
