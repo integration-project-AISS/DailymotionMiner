@@ -39,7 +39,6 @@ public class DailymotionService {
     public VMChannel mineChannel(String channelId, int maxVideos, int maxPages) {
 
         VMChannel vmChannel = getChannelInfo(channelId);
-
         if (vmChannel == null) {
             return null;
         }
