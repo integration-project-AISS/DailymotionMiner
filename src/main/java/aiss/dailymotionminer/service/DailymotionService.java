@@ -133,7 +133,7 @@ public class DailymotionService {
     // 3. ENVIAR A VIDEOMINER
     // ============================================
     private void sendToVideoMiner(VMChannel vmChannel) {
-        String url = videoMinerBaseUrl + "/channels";
+        String url = videoMinerBaseUrl + "/api/channels";
 
         try {
             restTemplate.postForObject(
